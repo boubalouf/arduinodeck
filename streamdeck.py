@@ -3,6 +3,9 @@ import json
 import threading
 import subprocess
 import keyboard
+import socket
+import os
+import winreg
 from PyQt5.QtWidgets import (
     QApplication, QMainWindow, QWidget, QListWidget, QListWidgetItem,
     QPushButton, QHBoxLayout, QGridLayout, QInputDialog, QMenu,
@@ -12,6 +15,8 @@ from PyQt5.QtCore import Qt, QMimeData, QSize
 from PyQt5.QtGui import QDrag, QIcon
 
 CONFIG_FILE = "config_streamdeck.json"
+APP_NAME = "StreamDeckMaison"
+LOCK_PORT = 65432  # Port utilisé pour empêcher les doubles instances
 
 ACTION_OPEN_APP = "open_app"
 ACTION_SHORTCUT = "shortcut"
@@ -22,6 +27,21 @@ actions_proposees = [
     {"type": ACTION_SHORTCUT, "name": "Simuler un raccourci", "icon": ""},
     {"type": ACTION_PLAY_PAUSE, "name": "Play/Pause média", "icon": ""},
 ]
+
+def check_single_instance(port=LOCK_PORT):
+    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    try:
+        s.bind(("127.0.0.1", port))
+    except OSError:
+        print("Une autre instance est déjà en cours.")
+        sys.exit()
+
+def add_to_startup():
+    exe_path = sys.executable
+    key = winreg.HKEY_CURRENT_USER
+    regpath = r"Software\Microsoft\Windows\CurrentVersion\Run"
+    with winreg.OpenKey(key, regpath, 0, winreg.KEY_SET_VALUE) as reg:
+        winreg.SetValueEx(reg, APP_NAME, 0, winreg.REG_SZ, f'"{exe_path}" silent')
 
 class ActionListWidget(QListWidget):
     def __init__(self):
@@ -83,7 +103,6 @@ class StreamDeckButton(QPushButton):
     def update_button(self):
         if self.action:
             self.setText(self.action["name"])
-            # Icône possible ici (à ajouter si tu as des icônes)
             self.setIconSize(QSize(48, 48))
         else:
             self.setText(f"Bouton {self.index+1}")
@@ -191,18 +210,14 @@ class MainWindow(QMainWindow):
         quit_action.triggered.connect(self.quit_app)
         self.tray_icon.show()
 
-        # Thread clavier
         self.listener_thread = threading.Thread(target=self.listen_keys, daemon=True)
         self.listener_thread.start()
 
     def save_all(self):
-        data = []
-        for b in self.buttons:
-            data.append(b.action if b.action else None)
+        data = [b.action if b.action else None for b in self.buttons]
         try:
             with open(CONFIG_FILE, "w", encoding="utf-8") as f:
                 json.dump(data, f, indent=4, ensure_ascii=False)
-            print("Config sauvegardée.")
         except Exception as e:
             print("Erreur sauvegarde:", e)
 
@@ -224,9 +239,7 @@ class MainWindow(QMainWindow):
             ]:
                 index = int(e.name[1:]) - 13
                 if 0 <= index < 12:
-                    action = None
-                    if len(self.buttons) > index:
-                        action = self.buttons[index].action
+                    action = self.buttons[index].action
                     if action:
                         self.run_action(action)
 
@@ -246,7 +259,6 @@ class MainWindow(QMainWindow):
                     keyboard.press_and_release(shortcut)
             elif typ == ACTION_PLAY_PAUSE:
                 keyboard.press_and_release("play/pause media")
-            print(f"Action exécutée : {action.get('name', '')}")
         except Exception as e:
             print("Erreur exécution action :", e)
 
@@ -274,7 +286,14 @@ class MainWindow(QMainWindow):
         QApplication.quit()
 
 if __name__ == "__main__":
+    check_single_instance()
+    add_to_startup()
+
     app = QApplication(sys.argv)
     window = MainWindow()
-    window.show()
+
+    # Si "silent" est dans les arguments, ne pas afficher la fenêtre
+    if "silent" not in sys.argv:
+        window.show()
+
     sys.exit(app.exec_())
