@@ -169,7 +169,7 @@ class MainWindow(QMainWindow):
         layout.addLayout(self.buttons_layout)
 
         self.buttons = []
-        rows, cols = 4, 3
+        rows, cols = 3, 4
         for i in range(rows * cols):
             btn = StreamDeckButton(i)
             self.buttons_layout.addWidget(btn, i // cols, i % cols)
@@ -254,7 +254,7 @@ class MainWindow(QMainWindow):
         event.ignore()
         self.hide()
         self.tray_icon.showMessage(
-            "Stream Deck Maison",
+            "ArduinoDeck",
             "L'application continue de tourner en arrière-plan.",
             QSystemTrayIcon.Information,
             2000
