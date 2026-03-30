@@ -20,11 +20,6 @@
 * Système de **Scroll Infini** (Lazy Loading) pour une fluidité maximale.
 * Rendu haute définition des emojis pour un look moderne.
 
-### 📊 Overlay de Statistiques PC [BETA] 
-* Affichez l'utilisation du **CPU** et de la **RAM** en temps réel.
-* Fenêtre flottante transparente qui ignore les clics (ne gêne pas le jeu).
-* Activation/Désactivation rapide via un bouton dédié.
-
 ### ⚙️ Automatisation & Système
 * **Actions prédéfinies :** Gestion du volume, contrôle multimédia (Play/Pause), Copier/Coller.
 * **Lancement d'Apps :** Ouvrez n'importe quel fichier `.exe` ou dossier.
