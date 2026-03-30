@@ -7,7 +7,7 @@ import keyboard
 import socket
 import os
 import emoji
-import winreg
+from PyQt5.QtNetwork import QLocalServer, QLocalSocket
 from PyQt5.QtWidgets import (
     QApplication, QMainWindow, QWidget, QListWidget, QListWidgetItem, QLabel,
     QPushButton, QHBoxLayout, QVBoxLayout, QGridLayout, QInputDialog, QMenu, QFileDialog,
@@ -27,7 +27,7 @@ except Exception:
 CONFIG_FILE = "config_streamdeck.json"
 APP_NAME = "StreamDeckMaison"
 ICON_PATH = os.path.join(os.path.dirname(__file__), 'icon.ico')
-LOCK_PORT = 65432  # Port utilisé pour empêcher les doubles instances
+INSTANCE_ID = "ArduinoDeck_Unique_ID"
 
 ACTION_OPEN_APP = "open_app"
 ACTION_SHORTCUT = "shortcut"
@@ -51,20 +51,6 @@ actions_proposees = {
     ]
 }
 
-def check_single_instance(port=LOCK_PORT):
-    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    try:
-        s.bind(("127.0.0.1", port))
-    except OSError:
-        print("Une autre instance est déjà en cours.")
-        sys.exit()
-
-def add_to_startup():
-    exe_path = sys.executable
-    key = winreg.HKEY_CURRENT_USER
-    regpath = r"Software\Microsoft\Windows\CurrentVersion\Run"
-    with winreg.OpenKey(key, regpath, 0, winreg.KEY_SET_VALUE) as reg:
-        winreg.SetValueEx(reg, APP_NAME, 0, winreg.REG_SZ, f'"{exe_path}" silent')
 
 class EmojiDialog(QDialog):
     def __init__(self, parent=None):
@@ -788,15 +774,44 @@ class MainWindow(QMainWindow):
         self.tray_icon.hide()
         QApplication.quit()
 
-if __name__ == "__main__":
-    check_single_instance()
-    add_to_startup()
+def handle_new_connection(server, window):
+    """Gère l'appel d'une nouvelle instance essayant de démarrer."""
+    socket = server.nextPendingConnection()
+    if socket and socket.waitForReadyRead(500):
+        data = socket.readAll().data().decode()
+        if data == "SHOW":
+            window.show()
+            window.raise_()
+            window.activateWindow()
+    socket.close()
 
+if __name__ == "__main__":
     app = QApplication(sys.argv)
+
+    # Vérification de l'instance unique via QLocalSocket
+    test_socket = QLocalSocket()
+    test_socket.connectToServer(INSTANCE_ID)
+    if test_socket.waitForConnected(500):
+        # Une instance tourne déjà, on lui envoie le signal de réveil et on quitte
+        test_socket.write(b"SHOW")
+        test_socket.waitForBytesWritten(500)
+        sys.exit(0)
+
+    # Si aucune instance n'existe, on prépare le serveur pour écouter les prochaines
+    server = QLocalServer()
+    server.removeServer(INSTANCE_ID) # Nettoyage si crash précédent
+    server.listen(INSTANCE_ID)
+
+    # Initialisation de la fenêtre principale
     window = MainWindow()
 
-    # Si "silent" est dans les arguments, ne pas afficher la fenêtre
-    if "silent" not in sys.argv:
+    # Connexion du signal pour réveiller cette instance via le serveur local
+    server.newConnection.connect(lambda: handle_new_connection(server, window))
+
+    # Gestion du mode silencieux (réduit dans la barre des tâches) ou affichage normal
+    if "silent" in sys.argv:
+        window.hide()
+    else:
         window.show()
 
     sys.exit(app.exec_())
