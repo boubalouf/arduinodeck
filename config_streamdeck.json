@@ -1,0 +1,23 @@
+{
+    "buttons": [
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null
+    ],
+    "settings": {
+        "ha_url": "",
+        "ha_token": "",
+        "key_mapping": {
+            "0": "A"
+        }
+    }
+}

@@ -8,6 +8,10 @@ import socket
 import os
 import webbrowser
 import requests
+try:
+    import winreg
+except ImportError:
+    winreg = None
 import emoji
 from PyQt5.QtNetwork import QLocalServer, QLocalSocket
 from PyQt5.QtWidgets import (
@@ -373,7 +377,7 @@ def check_config_exists():
     return False
 
 class HASettingsDialog(QDialog):
-    def __init__(self, ha_url, ha_token, key_mapping, parent=None):
+    def __init__(self, ha_url, ha_token, key_mapping, autostart, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Paramètres ArduinoDeck")
         self.setFixedSize(650, 580)
@@ -478,6 +482,12 @@ class HASettingsDialog(QDialog):
         sys_layout.setContentsMargins(30, 30, 30, 30)
         sys_layout.setSpacing(20)
 
+        sys_layout.addWidget(QLabel("OPTIONS DE DÉMARRAGE"))
+        self.autostart_cb = QCheckBox("Lancer automatiquement avec Windows")
+        self.autostart_cb.setStyleSheet("color: white; font-size: 14px;")
+        self.autostart_cb.setChecked(autostart)
+        sys_layout.addWidget(self.autostart_cb)
+
         sys_layout.addWidget(QLabel("MAINTENANCE"))
         self.reset_btn = QPushButton("Réinitialiser les réglages d'usine")
         self.reset_btn.setStyleSheet(""" 
@@ -555,7 +565,7 @@ class HASettingsDialog(QDialog):
                 QMessageBox.critical(self, "Erreur", f"Échec de la réinitialisation : {str(e)}")
 
     def get_values(self):
-        return self.url_input.text(), self.token_input.text(), self.mapping
+        return self.url_input.text(), self.token_input.text(), self.mapping, self.autostart_cb.isChecked()
 
 class DraggableListWidget(QListWidget):
     """QListWidget personnalisé pour corriger le bug de la barre noire lors du Drag."""
@@ -913,6 +923,7 @@ class MainWindow(QMainWindow):
 
         self.ha_url = ""
         self.ha_token = ""
+        self.autostart = False
         self.key_mapping = {} # Mapping TouchePhysique -> IndexGrille
         self.ha_entities_cache = {} # Dictionnaire { "Nom de l'appareil": ["entité1", "entité2"] }
         self.load_all()
@@ -1271,14 +1282,34 @@ class MainWindow(QMainWindow):
         self.apply_config_changes()
 
     def open_ha_settings(self):
-        dialog = HASettingsDialog(self.ha_url, self.ha_token, self.key_mapping, self)
+        dialog = HASettingsDialog(self.ha_url, self.ha_token, self.key_mapping, self.autostart, self)
         if dialog.exec_():
-            url, token, mapping = dialog.get_values()
+            url, token, mapping, autostart = dialog.get_values()
             self.ha_url = url
             self.ha_token = token
             self.key_mapping = mapping # Mise à jour immédiate en mémoire
+            self.autostart = autostart
+            self.set_autostart(autostart)
             self.save_all()
             self.fetch_ha_entities()
+
+    def set_autostart(self, enabled):
+        """Gère l'inscription de l'application dans le registre Windows."""
+        if not winreg: return
+        key_path = r"Software\Microsoft\Windows\CurrentVersion\Run"
+        try:
+            key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, key_path, 0, winreg.KEY_SET_VALUE)
+            if enabled:
+                app_path = f'"{sys.executable}" "{os.path.abspath(__file__)}" silent'
+                winreg.SetValueEx(key, APP_NAME, 0, winreg.REG_SZ, app_path)
+            else:
+                try:
+                    winreg.DeleteValue(key, APP_NAME)
+                except FileNotFoundError:
+                    pass
+            winreg.CloseKey(key)
+        except Exception as e:
+            print(f"Erreur configuration Autostart: {e}")
 
     def fetch_ha_entities(self):
         if not self.ha_url or not self.ha_token: return
@@ -1359,7 +1390,8 @@ class MainWindow(QMainWindow):
             "settings": {
                 "ha_url": self.ha_url,
                 "ha_token": self.ha_token,
-                "key_mapping": self.key_mapping
+                "key_mapping": self.key_mapping,
+                "autostart": self.autostart
             }
         }
         try:
@@ -1381,6 +1413,7 @@ class MainWindow(QMainWindow):
                 self.ha_url = settings.get("ha_url", "")
                 self.ha_token = settings.get("ha_token", "")
                 self.key_mapping = settings.get("key_mapping", {})
+                self.autostart = settings.get("autostart", False)
                 QTimer.singleShot(1000, self.fetch_ha_entities) # Charger les entités au démarrage
             else:
                 buttons_data = data
