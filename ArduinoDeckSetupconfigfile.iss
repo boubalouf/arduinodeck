@@ -3,7 +3,7 @@
 ; Non-commercial use only
 
 #define MyAppName "ArduinoDeck"
-#define MyAppVersion "1.5"
+#define MyAppVersion "1.6"
 #define MyAppPublisher "Boubalouf Inc"
 #define MyAppURL "https://github.com/boubalouf/arduinodeck"
 #define MyAppExeName "streamdeck.exe"

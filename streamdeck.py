@@ -31,9 +31,18 @@ try:
 except Exception:
     pass
 
+def resource_path(relative_path):
+    """ Retourne le chemin absolu vers la ressource, compatible dev et PyInstaller """
+    try:
+        # PyInstaller crée un dossier temporaire et stocke le chemin dans _MEIPASS
+        base_path = sys._MEIPASS
+    except Exception:
+        base_path = os.path.abspath(os.path.dirname(__file__))
+    return os.path.join(base_path, relative_path)
+
 CONFIG_FILE = "config_streamdeck.json"
 APP_NAME = "ArduinoDeck"
-ICON_PATH = os.path.join(os.path.dirname(__file__), 'icon.ico')
+ICON_PATH = resource_path('icon.ico')
 INSTANCE_ID = "ArduinoDeck_Unique_ID"
 
 ACTION_OPEN_APP = "open_app"
@@ -933,7 +942,7 @@ class MainWindow(QMainWindow):
         self.tray_icon.setIcon(QIcon(ICON_PATH))
         self.tray_icon.setToolTip("ArduinoDeck")
         tray_menu = QMenu()
-        restore_action = tray_menu.addAction("Ouvrir")
+        restore_action = tray_menu.addAction("Afficher / Ouvrir")
         quit_action = tray_menu.addAction("Quitter")
         self.tray_icon.setContextMenu(tray_menu)
         self.tray_icon.activated.connect(self.tray_activated)
@@ -1501,12 +1510,6 @@ class MainWindow(QMainWindow):
     def closeEvent(self, event):
         event.ignore()
         self.hide()
-        self.tray_icon.showMessage(
-            "ArduinoDeck",
-            "L'application continue de tourner en arrière-plan.",
-            QSystemTrayIcon.Information,
-            2000
-        )
 
     def tray_activated(self, reason):
         if reason == QSystemTrayIcon.Trigger:
