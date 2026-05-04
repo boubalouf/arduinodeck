@@ -58,3 +58,16 @@ Name: "{userstartup}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: de
 [Run]
 Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#StringChange(MyAppName, '&', '&&')}}"; Flags: nowait postinstall skipifsilent
 
+[Code]
+procedure InitializeWizard;
+begin
+  // Vérifie si le dossier de destination existe
+  if DirExists(ExpandConstant('{pf}\ArduinoDeck')) or DirExists(ExpandConstant('{localappdata}\ArduinoDeck')) then
+  begin
+    WizardForm.NextButton.Caption := 'Mettre à jour';
+  end
+  else
+  begin
+    WizardForm.NextButton.Caption := 'Installer';
+  end;
+end;
