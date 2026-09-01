@@ -1,27 +1,113 @@
 import sys
-import ctypes
+import ctypes as _ctypes
 import json
 import threading
 import subprocess
 import keyboard
+from pynput import keyboard as pynput_keyboard
 import socket
 import os
 import webbrowser
 import requests
+from abc import ABC, abstractmethod
 try:
     import winreg
 except ImportError:
     winreg = None
 import emoji
+from ctypes import cast, POINTER
+try:
+    from comtypes import CoInitialize, CoUninitialize
+except ImportError:
+    CoInitialize = None
+    CoUninitialize = None
+
+class ctypes(ABC):
+    """Concrete wrapper around the stdlib ctypes API used by this app.
+
+    The original project uses ``ctypes.windll`` to call Win32 APIs, so we keep the
+    familiar attribute access while exposing useful helper methods for library loading,
+    function invocation and JSON conversion.
+    """
+
+    @property
+    def windll(self):
+        return _ctypes.windll
+
+    @property
+    def wintypes(self):
+        return _ctypes.wintypes
+
+    @abstractmethod
+    def load_library(self, name):
+        raise NotImplementedError("load_library() must be implemented")
+
+    @abstractmethod
+    def call_function(self, library_name, function_name, *args, restype=None, argtypes=None):
+        raise NotImplementedError("call_function() must be implemented")
+
+    @abstractmethod
+    def to_json(self, value):
+        raise NotImplementedError("to_json() must be implemented")
+
+    def __getattr__(self, name):
+        return getattr(_ctypes, name)
+
+    def load_library(self, name):
+        """Load a DLL and return the callable object exposing its exported functions."""
+        return _ctypes.WinDLL(name)
+
+    def call_function(self, library_name, function_name, *args, restype=None, argtypes=None):
+        """Invoke a function from a DLL with optional type metadata."""
+        dll = _ctypes.WinDLL(library_name)
+        func = getattr(dll, function_name)
+        if restype is not None:
+            func.restype = restype
+        if argtypes is not None:
+            func.argtypes = argtypes
+        return func(*args)
+
+    def to_json(self, value):
+        """Serialize Python data to JSON with UTF-8-friendly output."""
+        return json.dumps(value, ensure_ascii=False, indent=2)
+
+ctypes = ctypes()
+
+try:
+    if CoInitialize:
+        CoInitialize()
+except Exception:
+    pass
+
+# Hook global pour intercepter les exceptions non capturées et éviter les fermetures silencieuses
+def handle_exception(exc_type, exc_value, exc_traceback):
+    if issubclass(exc_type, KeyboardInterrupt):
+        sys.__excepthook__(exc_type, exc_value, exc_traceback)
+        return
+    try:
+        print("[CRITICAL ERROR]", exc_type, exc_value)
+    except Exception:
+        # En cas de problème lors du log, retomber sur le hook par défaut
+        sys.__excepthook__(exc_type, exc_value, exc_traceback)
+
+sys.excepthook = handle_exception
+
+try:
+    from pycaw.pycaw import AudioUtilities, IAudioEndpointVolume, ISimpleAudioVolume
+except ImportError:
+    AudioUtilities = None
+    IAudioEndpointVolume = None
+    ISimpleAudioVolume = None
 from PyQt5.QtNetwork import QLocalServer, QLocalSocket
 from PyQt5.QtWidgets import (
     QApplication, QMainWindow, QWidget, QListWidget, QListWidgetItem, QLabel,
     QPushButton, QHBoxLayout, QVBoxLayout, QGridLayout, QInputDialog, QMenu, QFileDialog, 
     QComboBox, QSpinBox, QMessageBox,
     QSystemTrayIcon, QStyle, QFrame, QLineEdit, QSpacerItem, QSizePolicy, QToolButton, 
-    QDialog, QScrollArea, QDesktopWidget, QTabWidget, QCheckBox, QStackedWidget
+    QDialog, QScrollArea, QDesktopWidget, QTabWidget, QCheckBox, QStackedWidget,
+    QGraphicsOpacityEffect
 )
-from PyQt5.QtCore import Qt, QMimeData, QSize, QTimer, QPropertyAnimation, QEasingCurve
+from PyQt5.QtCore import Qt, QMimeData, QSize, QTimer, QPropertyAnimation, QEasingCurve, pyqtSignal, QObject
 from PyQt5.QtGui import QDrag, QIcon, QPixmap, QPainter, QFont, QColor
 
 # Forcer l'affichage de l'icône personnalisée dans la barre des tâches Windows
@@ -40,7 +126,48 @@ def resource_path(relative_path):
         base_path = os.path.abspath(os.path.dirname(__file__))
     return os.path.join(base_path, relative_path)
 
-CONFIG_FILE = "config_streamdeck.json"
+def get_app_dir():
+    if getattr(sys, 'frozen', False):
+        # Si l'application est compilée avec PyInstaller (.exe)
+        return os.path.dirname(sys.executable)
+    else:
+        # Si l'application tourne depuis le script .py
+        return os.path.dirname(os.path.abspath(__file__))
+
+def get_microphone_volume_control():
+    """Récupère l'interface de contrôle du volume du microphone principal de Windows."""
+    try:
+        if CoInitialize:
+            try:
+                CoInitialize()
+            except Exception:
+                pass
+        if not AudioUtilities:
+            return None
+        mic = AudioUtilities.GetMicrophone()
+        if not mic:
+            return None
+        if hasattr(mic, '_ctl'):
+            return mic._ctl.QueryInterface(ISimpleAudioVolume)
+        elif IAudioEndpointVolume:
+            interface = mic.Activate(IAudioEndpointVolume._iid_, 7, None)
+            return cast(interface, POINTER(IAudioEndpointVolume))
+    except Exception as e:
+        print(f"[ERROR Audio] Accès microphone: {e}")
+    return None
+
+def get_microphone_mute_state():
+    """Retourne True si le micro est coupé, False s'il est actif, None si indisponible."""
+    try:
+        vol = get_microphone_volume_control()
+        if vol is not None:
+            return bool(vol.GetMute())
+    except Exception as e:
+        print(f"[ERROR Audio] Lecture état micro: {e}")
+    return None
+
+CONFIG_FILE_PATH = os.path.join(get_app_dir(), "config_streamdeck.json")
+CONFIG_FILE = CONFIG_FILE_PATH
 APP_NAME = "ArduinoDeck"
 ICON_PATH = resource_path('icon.ico')
 INSTANCE_ID = "ArduinoDeck_Unique_ID"
@@ -51,6 +178,7 @@ ACTION_PLAY_PAUSE = "play_pause"
 ACTION_VOL_UP = "vol_up"
 ACTION_VOL_DOWN = "vol_down"
 ACTION_MUTE = "mute"
+ACTION_MUTE_MIC = "mute_mic"
 ACTION_COPY = "copy"
 ACTION_PASTE = "paste"
 ACTION_OPEN_WEB = "open_web"
@@ -64,6 +192,7 @@ actions_proposees = {
         {"type": ACTION_VOL_UP, "name": "Volume +", "icon": "🔊"},
         {"type": ACTION_VOL_DOWN, "name": "Volume -", "icon": "🔉"},
         {"type": ACTION_MUTE, "name": "Muer (Mute)", "icon": "🔇"},
+        {"type": ACTION_MUTE_MIC, "name": "Muer Micro (Mute Mic)", "icon": "🎙️"},
     ],
     "Raccourcis / Application": [
         {"type": ACTION_COPY, "name": "Copier", "icon": "📄"},
@@ -78,6 +207,51 @@ actions_proposees = {
         {"type": ACTION_HA, "name": "Home Assistant", "icon": "🏠"},
     ]
 }
+
+
+class MicMuteOverlay(QWidget):
+    def __init__(self):
+        super().__init__(None)
+        self.setWindowFlags(
+            Qt.WindowStaysOnTopHint | 
+            Qt.FramelessWindowHint | 
+            Qt.Tool | 
+            Qt.WindowDoesNotAcceptFocus
+        )
+        self.setAttribute(Qt.WA_TranslucentBackground)
+        
+        self.layout = QHBoxLayout(self)
+        self.label = QLabel("", self)
+        self.label.setStyleSheet("""
+            QLabel {
+                background-color: rgba(10, 10, 10, 230);
+                color: white;
+                font-size: 16px;
+                font-weight: bold;
+                padding: 12px 24px;
+                border-radius: 10px;
+                border: 2px solid #555555;
+            }
+        """)
+        self.layout.addWidget(self.label)
+        
+        self.timer = QTimer(self)
+        self.timer.setSingleShot(True)
+        self.timer.timeout.connect(self.hide)
+
+    def show_status(self, is_muted):
+        if is_muted:
+            self.label.setText("🎙️ Micro : COUPÉ")
+            self.label.setStyleSheet(self.label.styleSheet() + "QLabel { color: #FF4444; border-color: #FF4444; }")
+        else:
+            self.label.setText("🎙️ Micro : ACTIF")
+            self.label.setStyleSheet(self.label.styleSheet() + "QLabel { color: #44FF44; border-color: #44FF44; }")
+            
+        self.adjustSize()
+        self.move(50, 50)
+        self.show()
+        self.raise_()
+        self.timer.start(1500)
 
 
 class EmojiDialog(QDialog):
@@ -363,16 +537,16 @@ class CalibrationWizard(QDialog):
                 "key_mapping": self.mapping
             }
         }
-        with open(CONFIG_FILE, "w", encoding="utf-8") as f:
+        with open(CONFIG_FILE_PATH, "w", encoding="utf-8") as f:
             json.dump(data, f, indent=4)
         self.accept()
 
 def check_config_exists():
     """Vérifie si une configuration valide existe déjà."""
-    if not os.path.exists(CONFIG_FILE):
+    if not os.path.exists(CONFIG_FILE_PATH):
         return False
     try:
-        with open(CONFIG_FILE, "r", encoding="utf-8") as f:
+        with open(CONFIG_FILE_PATH, "r", encoding="utf-8") as f:
             data = json.load(f)
             buttons = data.get("buttons", [])
             # Si au moins un bouton n'est pas None, on considère que c'est configuré
@@ -566,8 +740,8 @@ class HASettingsDialog(QDialog):
 
         if reply == QMessageBox.Yes:
             try:
-                if os.path.exists(CONFIG_FILE):
-                    os.remove(CONFIG_FILE)
+                if os.path.exists(CONFIG_FILE_PATH):
+                    os.remove(CONFIG_FILE_PATH)
                 # Redémarrage propre de l'application
                 os.execl(sys.executable, sys.executable, *sys.argv)
             except Exception as e:
@@ -757,12 +931,21 @@ class StreamDeckButton(QPushButton):
         self.refresh_style()
         self.update_button()
 
-    def refresh_style(self):
+    def refresh_style(self, is_muted=None):
         border_color = "#00a2ff" if self.is_selected else "#2a2a2a"
+        text_color = "white"
+        if self.action and self.action.get("type") == ACTION_MUTE_MIC:
+            if is_muted is True:
+                border_color = "#ff4444" if not self.is_selected else "#ff7777"
+                text_color = "#ff5555"
+            elif is_muted is False:
+                border_color = "#00cc66" if not self.is_selected else "#33ff88"
+                text_color = "#00ff88"
+
         self.setStyleSheet(f"""
             QPushButton {{
                 background-color: #1c1c1c;
-                color: white;
+                color: {text_color};
                 border-radius: 20px;
                 font-size: 11px;
                 font-weight: bold;
@@ -779,7 +962,23 @@ class StreamDeckButton(QPushButton):
             }}
         """)
 
-    def update_button(self):
+    def update_button(self, is_muted=None):
+        if self.action and self.action.get("type") == ACTION_MUTE_MIC:
+            if is_muted is None:
+                is_muted = get_microphone_mute_state()
+            self.refresh_style(is_muted=is_muted)
+            custom_icon = self.action.get("icon")
+            if is_muted is True:
+                self.setText("Micro OFF")
+                icon_char = "🔇" if not custom_icon or custom_icon == "🎙️" else custom_icon
+                self.setIcon(self.create_text_icon(icon_char, color="#ff5555"))
+            else:
+                self.setText("Micro ON")
+                icon_char = "🎙️" if not custom_icon else custom_icon
+                self.setIcon(self.create_text_icon(icon_char, color="#00ff88"))
+            self.setIconSize(QSize(60, 60))
+            return
+
         self.setText("") # On ne veut plus de texte sur le bouton
         if self.action:
             if self.action.get("icon"):
@@ -789,6 +988,7 @@ class StreamDeckButton(QPushButton):
             self.setIconSize(QSize(80, 80))
         else:
             self.setIcon(QIcon())
+        self.refresh_style()
 
     def create_text_icon(self, text, color="white"):
         pixmap = QPixmap(100, 100)
@@ -856,10 +1056,40 @@ class StreamDeckButton(QPushButton):
         self.update_button()
         self.window().save_all()
 
+class KeyListenerThread(QObject):
+    key_pressed_signal = pyqtSignal(str)
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.listener = None
+
+    def start_listening(self):
+        def on_press(key):
+            try:
+                # Try attribute 'name' (pynput Key) or virtual key 'vk'
+                if hasattr(key, 'name') and key.name:
+                    key_name = key.name.lower()
+                    if key_name in [f"f{i}" for i in range(13, 25)]:
+                        self.key_pressed_signal.emit(key_name)
+                elif hasattr(key, 'vk') and isinstance(key.vk, int) and 124 <= key.vk <= 135:
+                    f_num = key.vk - 123
+                    self.key_pressed_signal.emit(f"f{f_num}")
+            except Exception as e:
+                print(f"[ERROR KeyHook] {e}")
+
+        try:
+            self.listener = pynput_keyboard.Listener(on_press=on_press)
+            self.listener.start()
+        except Exception as e:
+            print(f"[ERROR KeyHook] Failed to start listener: {e}")
+
+
 class MainWindow(QMainWindow):
+    mic_toggle_signal = pyqtSignal(bool)
+
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("ArduinoDeck")
+        self.setWindowTitle("ArduinoDeck - Configuration")
         self.setWindowIcon(QIcon(ICON_PATH))
         self.resize(1000, 700)
         self.setStyleSheet("QMainWindow { background-color: #111111; }")
@@ -950,8 +1180,70 @@ class MainWindow(QMainWindow):
         quit_action.triggered.connect(self.quit_app)
         self.tray_icon.show()
 
-        self.listener_thread = threading.Thread(target=self.listen_keys, daemon=True)
-        self.listener_thread.start()
+        # Démarrer le listener global de touches (pynput) pour F13-F24 (Arduino en mode HID clavier)
+        self.key_listener = KeyListenerThread()
+        self.key_listener.key_pressed_signal.connect(self.handle_key_trigger)
+        self.key_listener.start_listening()
+
+        # Timer de synchronisation de l'état du microphone
+        self.mic_sync_timer = QTimer(self)
+        self.mic_sync_timer.timeout.connect(self.update_mic_buttons)
+        self.mic_sync_timer.start(2000)
+
+        # Overlay OSD pour les notifications de statut du micro
+        self.mic_overlay = MicMuteOverlay()
+        
+        # Connexion du signal pour un appel thread-safe de l'interface
+        self.mic_toggle_signal.connect(self.handle_mic_overlay_gui)
+
+        # Tentative non-bloquante et protégée de lecture initiale de l'état du micro
+        try:
+            if CoInitialize:
+                try:
+                    CoInitialize()
+                except Exception:
+                    pass
+            try:
+                self.update_mic_buttons()
+            except Exception as e:
+                print(f"[WARN] Impossible de lire l'état audio au démarrage: {e}")
+            finally:
+                try:
+                    if CoUninitialize:
+                        CoUninitialize()
+                except Exception:
+                    pass
+        except Exception as e:
+            print(f"[WARN] Impossible de lire l'état audio au démarrage: {e}")
+
+    def handle_mic_overlay_gui(self, is_muted):
+        # Cette méthode est exécutée dans le THREAD PRINCIPAL (GUI)
+        if hasattr(self, 'mic_overlay'):
+            self.mic_overlay.show_status(is_muted)
+
+    def handle_key_trigger(self, key_name):
+        """Called from KeyListenerThread via signal when a F13-F24 key is pressed.
+        Recherche la touche dans le mapping et déclenche l'action associée.
+        """
+        try:
+            lookup = key_name.upper()
+            for idx_str, assigned_key in self.key_mapping.items():
+                if str(assigned_key).upper() == lookup:
+                    action = self.buttons[int(idx_str)].action
+                    if action:
+                        self.run_action(action)
+                        # Si action micro, afficher l'overlay avec l'état courant
+                        if action.get('type') == ACTION_MUTE_MIC:
+                            try:
+                                is_muted = get_microphone_mute_state()
+                                self.mic_overlay.show_status(is_muted)
+                            except Exception:
+                                pass
+                    break
+        except Exception as e:
+            print(f"[ERROR KeyTrigger] {e}")
+
+    # Serial port logic removed - Arduino is HID keyboard; global key hook used instead
 
     def setup_config_panel(self):
         self.config_panel = QFrame()
@@ -1404,15 +1696,15 @@ class MainWindow(QMainWindow):
             }
         }
         try:
-            with open(CONFIG_FILE, "w", encoding="utf-8") as f:
+            with open(CONFIG_FILE_PATH, "w", encoding="utf-8") as f:
                 json.dump(data, f, indent=4, ensure_ascii=False)
         except Exception as e:
             print("Erreur sauvegarde:", e)
 
     def load_all(self):
         try:
-            if not os.path.exists(CONFIG_FILE): return
-            with open(CONFIG_FILE, "r", encoding="utf-8") as f:
+            if not os.path.exists(CONFIG_FILE_PATH): return
+            with open(CONFIG_FILE_PATH, "r", encoding="utf-8") as f:
                 data = json.load(f)
 
             # Gestion du format dictionnaire (nouveau) ou liste (ancien)
@@ -1435,6 +1727,12 @@ class MainWindow(QMainWindow):
             print("Erreur chargement:", e)
 
     def listen_keys(self):
+        try:
+            if CoInitialize:
+                CoInitialize()
+        except Exception:
+            pass
+            
         def on_key(e):
             if e.event_type == 'down':
                 key_name = e.name.upper()
@@ -1447,6 +1745,12 @@ class MainWindow(QMainWindow):
 
         keyboard.hook(on_key)
         keyboard.wait()
+        
+        try:
+            if CoUninitialize:
+                CoUninitialize()
+        except Exception:
+            pass
 
     def run_action(self, action):
         try:
@@ -1467,6 +1771,8 @@ class MainWindow(QMainWindow):
                 keyboard.press_and_release("volume down")
             elif typ == ACTION_MUTE:
                 keyboard.press_and_release("volume mute")
+            elif typ == ACTION_MUTE_MIC:
+                self.toggle_microphone_mute()
             elif typ == ACTION_COPY:
                 keyboard.press_and_release("ctrl+c")
             elif typ == ACTION_PASTE:
@@ -1482,7 +1788,7 @@ class MainWindow(QMainWindow):
             elif typ == ACTION_HA:
                 # Lecture stricte des paramètres depuis le fichier config avant chaque requête
                 try:
-                    with open(CONFIG_FILE, "r", encoding="utf-8") as f:
+                    with open(CONFIG_FILE_PATH, "r", encoding="utf-8") as f:
                         config_data = json.load(f)
                         ha_settings = config_data.get("settings", {})
                         ha_url = ha_settings.get("ha_url", "").strip().rstrip('/')
@@ -1506,6 +1812,45 @@ class MainWindow(QMainWindow):
                     requests.post(f"{ha_url}/api/services/{domain}/{service}", headers=headers, json=payload, timeout=5)
         except Exception as e:
             print("Erreur exécution action :", e)
+
+    def toggle_microphone_mute(self):
+        """Bascule l'état (Mute / Unmute) du microphone principal de Windows."""
+        try:
+            if CoInitialize:
+                try:
+                    CoInitialize()
+                except Exception:
+                    pass
+            vol = get_microphone_volume_control()
+            if vol is not None:
+                is_muted = bool(vol.GetMute())
+                new_state = not is_muted
+                vol.SetMute(new_state, None)
+                
+                is_muted = vol.GetMute()
+                print(f"[DEBUG] Micro muted: {is_muted}")
+                
+                # APPEL DU SIGNAL VERS LE THREAD PRINCIPAL (GUI)
+                self.mic_toggle_signal.emit(bool(is_muted))
+                return new_state
+            else:
+                print("[ERROR Audio] Impossible d'accéder au périphérique microphone.")
+        except Exception as e:
+            print(f"[ERROR Audio] toggle_microphone_mute: {e}")
+        return None
+
+    def update_mic_buttons(self, is_muted=None):
+        """Met à jour l'apparence des boutons Mute Micro sans bloquer l'UI."""
+        try:
+            mic_btns = [b for b in self.buttons if b.action and b.action.get("type") == ACTION_MUTE_MIC]
+            if not mic_btns:
+                return
+            if is_muted is None:
+                is_muted = get_microphone_mute_state()
+            for btn in mic_btns:
+                btn.update_button(is_muted=is_muted)
+        except Exception as e:
+            print(f"[ERROR Audio] update_mic_buttons: {e}")
 
     def closeEvent(self, event):
         event.ignore()
@@ -1535,7 +1880,18 @@ def handle_new_connection(server, window):
             window.activateWindow()
     socket.close()
 
-if __name__ == "__main__":
+if __name__ == '__main__':
+    import sys
+    try:
+        from comtypes import CoInitialize, CoUninitialize
+        # Initialisation de COM pour Windows avant le lancement de Qt
+        try:
+            CoInitialize()
+        except Exception:
+            pass
+    except ImportError:
+        CoUninitialize = None
+
     app = QApplication(sys.argv)
 
     # Vérification de l'instance unique via QLocalSocket
@@ -1558,7 +1914,7 @@ if __name__ == "__main__":
         if not wizard.exec_():
             sys.exit(0) # Quitter si l'utilisateur annule le wizard
 
-    # Initialisation de la fenêtre principale
+    # Initialisation de la fenêtre principale (Garde une référence stricte de l'instance)
     window = MainWindow()
 
     # Connexion du signal pour réveiller cette instance via le serveur local
@@ -1570,4 +1926,12 @@ if __name__ == "__main__":
     else:
         window.show()
 
-    sys.exit(app.exec_())
+    exit_code = app.exec_()
+
+    try:
+        if CoUninitialize:
+            CoUninitialize()
+    except Exception:
+        pass
+
+    sys.exit(exit_code)

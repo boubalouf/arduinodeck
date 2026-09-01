@@ -1,0 +1,67 @@
+{
+    "buttons": [
+        null,
+        null,
+        null,
+        null,
+        {
+            "type": "vol_up",
+            "name": "Volume +",
+            "icon": "🔊"
+        },
+        {
+            "type": "vol_down",
+            "name": "Volume -",
+            "icon": "🔉"
+        },
+        {
+            "type": "mute",
+            "name": "Muer (Mute)",
+            "icon": "🔇"
+        },
+        {
+            "type": "shortcut",
+            "name": "Raccourci Clavier",
+            "icon": "🎥",
+            "shortcut": "ctrl+shift+p"
+        },
+        {
+            "type": "play_pause",
+            "name": "Lecture / Pause",
+            "icon": "⏯️"
+        },
+        {
+            "type": "prev_track",
+            "name": "Chanson Précédente",
+            "icon": "⏮️"
+        },
+        {
+            "type": "next_track",
+            "name": "Chanson Suivante",
+            "icon": "⏭️"
+        },
+        {
+            "type": "open_app",
+            "name": "Ouvrir Application",
+            "icon": "🚀",
+            "path": "C:\\Users\\tbisc\\AppData\\Roaming\\Spotify\\Spotify.exe"
+        }
+    ],
+    "settings": {
+        "ha_url": "",
+        "ha_token": "",
+        "key_mapping": {
+            "0": "F13",
+            "3": "F16",
+            "4": "F17",
+            "5": "F18",
+            "6": "F19",
+            "7": "F20",
+            "8": "F21",
+            "9": "F22",
+            "10": "F23",
+            "11": "F24"
+        },
+        "autostart": true
+    }
+}

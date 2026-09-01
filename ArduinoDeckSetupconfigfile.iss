@@ -33,9 +33,9 @@ DisableProgramGroupPage=yes
 ; Uncomment the following line to run in non administrative install mode (install for current user only).
 ;PrivilegesRequired=lowest
 PrivilegesRequiredOverridesAllowed=dialog
-OutputDir=C:\Users\timofeibischerour\Desktop\arduinodeck-main
+OutputDir=C:\Users\timofeibischerour\Desktop\arduinodeck
 OutputBaseFilename=ArduinoDeck_Setup
-SetupIconFile=C:\Users\timofeibischerour\Desktop\arduinodeck-main\icon.ico
+SetupIconFile=C:\Users\timofeibischerour\Desktop\arduinodeck\icon.ico
 SolidCompression=yes
 WizardStyle=modern dynamic windows11
 
