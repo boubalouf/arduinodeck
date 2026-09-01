@@ -1,6 +1,6 @@
 # 🚀 ArduinoDeck
 
-**ArduinoDeck** est un contrôleur de macros et de raccourcis puissant développé en Python avec **PyQt5**. Conçu à l'origine pour fonctionner avec un Arduino émulant les touches de fonction étendues (**F13 à F24**), il peut être utilisé comme une alternative logicielle complète au Stream Deck d'Elgato.
+**ArduinoDeck** est un contrôleur de macros et de raccourcis puissant développé en Python avec **PyQt5**. Conçu à l'origine pour fonctionner avec un Arduino émulant un clavier HID sur les touches de fonction étendues (**F13 à F24**), il constitue une alternative logicielle complète, fluide et personnalisable au Stream Deck d'Elgato.
 
 ![Python](https://img.shields.io/badge/Python-3.10%2B-blue?logo=python)
 ![PyQt5](https://img.shields.io/badge/Framework-PyQt5-green?logo=qt)
@@ -10,26 +10,32 @@
 
 ## ✨ Fonctionnalités
 
-### 🎛️ Gestion de la Grille
-* **12 touches configurables** (3x4) par simple **Drag & Drop**.
-* Support natif des touches **F13 à F24** pour déclencher les actions.
-* Personnalisation complète : titre, icône (Emoji) et commande.
+### 🎙️ Gestion Audio & Overlay OSD
+* **Mute / Unmute du Microphone :** Contrôle instantané du micro principal sous Windows via `Pycaw`.
+* **Overlay visuel à l'écran :** Notification contextuelle dynamique en haut à gauche pour vérifier l'état du micro sans altérer le focus de vos jeux ou logiciels.
+
+### 🎛️ Écoute Clavier & Grille
+* **Support natif F13 à F24 :** Écoute globale en arrière-plan via `Pynput` des touches envoyées par votre Arduino (HID).
+* **12 touches configurables (3x4) :** Réorganisation rapide des boutons par **Drag & Drop**.
+* **Personnalisation complète :** Modification du titre, de l'icône (Emoji) et des actions associées.
 
 ### 🔍 Bibliothèque d'Emojis Intégrée
 * Recherche intelligente en **Français**.
 * Système de **Scroll Infini** (Lazy Loading) pour une fluidité maximale.
-* Rendu haute définition des emojis pour un look moderne.
+* Rendu haute définition des emojis pour une interface moderne.
 
 ### ⚙️ Automatisation & Système
-* **Actions prédéfinies :** Gestion du volume, contrôle multimédia (Play/Pause), Copier/Coller.
-* **Lancement d'Apps :** Ouvrez n'importe quel fichier `.exe` ou dossier.
-* **Auto-Start :** Option pour lancer l'application au démarrage de Windows.
-* **Mode Tray :** Se réduit dans la zone de notification pour rester actif en arrière-plan.
+* **Actions système :** Contrôle du volume général, gestion multimédia (Play/Pause, Suivant/Précédent), raccourcis presse-papiers.
+* **Lancement d'applications :** Exécution directe de fichiers `.exe`, raccourcis ou dossiers.
+* **Auto-Start & Mode Tray :** Option de lancement au démarrage de Windows et réduction discrète dans la zone de notification.
 
-## 🛠️ Installation
+---
+
+## 🛠️ Installation & Démarrage
 
 ### 1. Prérequis
-Assurez-vous d'avoir Python 3.10 ou plus récent installé.
+* Windows 10/11
+* Python 3.10 ou version ultérieure
 
 ### 2. Cloner le projet
 ```bash
