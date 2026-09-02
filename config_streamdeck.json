@@ -20,10 +20,9 @@
             "icon": "🔇"
         },
         {
-            "type": "shortcut",
-            "name": "Raccourci Clavier",
-            "icon": "🎥",
-            "shortcut": "ctrl+shift+p"
+            "type": "mute_mic",
+            "name": "Muer Micro (Mute Mic)",
+            "icon": "🎙️"
         },
         {
             "type": "play_pause",

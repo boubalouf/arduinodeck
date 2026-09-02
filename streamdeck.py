@@ -1,4 +1,12 @@
 import sys
+import os
+
+# Fix du répertoire de travail : garantit que l'app trouve ses fichiers même
+# lorsqu'elle est lancée depuis le registre Windows (démarrage automatique)
+if getattr(sys, 'frozen', False):
+    os.chdir(os.path.dirname(sys.executable))
+else:
+    os.chdir(os.path.dirname(os.path.abspath(__file__)))
 import ctypes as _ctypes
 import json
 import threading
@@ -6,7 +14,6 @@ import subprocess
 import keyboard
 from pynput import keyboard as pynput_keyboard
 import socket
-import os
 import webbrowser
 import requests
 from abc import ABC, abstractmethod
@@ -166,11 +173,29 @@ def get_microphone_mute_state():
         print(f"[ERROR Audio] Lecture état micro: {e}")
     return None
 
-CONFIG_FILE_PATH = os.path.join(get_app_dir(), "config_streamdeck.json")
+
+# Dossier de données utilisateur (lecture/écriture sûre, même depuis Program Files)
+APPDATA_DIR = os.path.join(os.getenv('APPDATA', os.path.expanduser('~')), 'ArduinoDeck')
+os.makedirs(APPDATA_DIR, exist_ok=True)
+
+CONFIG_FILE_PATH = os.path.join(APPDATA_DIR, "config_streamdeck.json")
 CONFIG_FILE = CONFIG_FILE_PATH
 APP_NAME = "ArduinoDeck"
 ICON_PATH = resource_path('icon.ico')
 INSTANCE_ID = "ArduinoDeck_Unique_ID"
+LOG_FILE = os.path.join(APPDATA_DIR, "error.log")
+
+def log_error(msg):
+    """Écrit un message d'erreur dans le fichier log situé dans APPDATA."""
+    import traceback, datetime
+    try:
+        with open(LOG_FILE, "a", encoding="utf-8") as f:
+            f.write(f"[{datetime.datetime.now().isoformat()}] {msg}\n")
+            if sys.exc_info()[0]:
+                traceback.print_exc(file=f)
+    except Exception:
+        pass
+    print(msg)
 
 ACTION_OPEN_APP = "open_app"
 ACTION_SHORTCUT = "shortcut"
@@ -1167,23 +1192,16 @@ class MainWindow(QMainWindow):
         self.ha_entities_cache = {} # Dictionnaire { "Nom de l'appareil": ["entité1", "entité2"] }
         self.load_all()
 
-        # Setup System Tray
-        self.tray_icon = QSystemTrayIcon(self)
-        self.tray_icon.setIcon(QIcon(ICON_PATH))
-        self.tray_icon.setToolTip("ArduinoDeck")
-        tray_menu = QMenu()
-        restore_action = tray_menu.addAction("Afficher / Ouvrir")
-        quit_action = tray_menu.addAction("Quitter")
-        self.tray_icon.setContextMenu(tray_menu)
-        self.tray_icon.activated.connect(self.tray_activated)
-        restore_action.triggered.connect(self.show_window)
-        quit_action.triggered.connect(self.quit_app)
-        self.tray_icon.show()
+        # Overlay OSD préparé en avance (aucun appel COM ici)
+        self.tray_icon = None
 
         # Démarrer le listener global de touches (pynput) pour F13-F24 (Arduino en mode HID clavier)
         self.key_listener = KeyListenerThread()
         self.key_listener.key_pressed_signal.connect(self.handle_key_trigger)
-        self.key_listener.start_listening()
+
+        # Initialisation différée : on attend 1 seconde que le bureau Windows soit prêt
+        QTimer.singleShot(1000, self.init_system_tray)
+        QTimer.singleShot(1000, self.key_listener.start_listening)
 
         # Timer de synchronisation de l'état du microphone
         self.mic_sync_timer = QTimer(self)
@@ -1196,30 +1214,65 @@ class MainWindow(QMainWindow):
         # Connexion du signal pour un appel thread-safe de l'interface
         self.mic_toggle_signal.connect(self.handle_mic_overlay_gui)
 
-        # Tentative non-bloquante et protégée de lecture initiale de l'état du micro
+        # Démarrage différé du service audio (2 s pour laisser Windows Audio se stabiliser)
+        QTimer.singleShot(2000, self.init_audio_service)
+
+    def handle_mic_overlay_gui(self, is_muted):
+        # Cette méthode est exécutée dans le THREAD PRINCIPAL (GUI)
+        if hasattr(self, 'mic_overlay'):
+            self.mic_overlay.show_status(is_muted)
+
+    def init_system_tray(self):
+        """Initialise l'icône System Tray avec fallback icône système.
+        Appelée 1 seconde après le démarrage via QTimer pour laisser Windows prêt."""
+        try:
+            if not QSystemTrayIcon.isSystemTrayAvailable():
+                log_error("[WARN] System Tray non disponible sur ce bureau.")
+                return
+
+            self.tray_icon = QSystemTrayIcon(self)
+
+            # Charge l'icône ou utilise une icône système si le fichier est introuvable
+            if os.path.exists(ICON_PATH):
+                self.tray_icon.setIcon(QIcon(ICON_PATH))
+            else:
+                self.tray_icon.setIcon(self.style().standardIcon(QStyle.SP_ComputerIcon))
+
+            self.tray_icon.setToolTip("ArduinoDeck")
+
+            tray_menu = QMenu()
+            show_action = tray_menu.addAction("Afficher / Ouvrir")
+            show_action.triggered.connect(self.show_and_restore)
+            tray_menu.addSeparator()
+            quit_action = tray_menu.addAction("Quitter")
+            quit_action.triggered.connect(self.quit_app)
+
+            self.tray_icon.setContextMenu(tray_menu)
+            self.tray_icon.activated.connect(self.tray_activated)
+            self.tray_icon.show()
+            print("[INFO] System Tray initialisé.")
+        except Exception as e:
+            log_error(f"[CRITICAL] Erreur init System Tray: {e}")
+
+    def init_audio_service(self):
+        """Lecture initiale de l'état du micro, 2 secondes après le démarrage.
+        Exécutée sur le thread principal (appelée via QTimer.singleShot)."""
         try:
             if CoInitialize:
                 try:
                     CoInitialize()
                 except Exception:
                     pass
-            try:
-                self.update_mic_buttons()
-            except Exception as e:
-                print(f"[WARN] Impossible de lire l'état audio au démarrage: {e}")
-            finally:
-                try:
-                    if CoUninitialize:
-                        CoUninitialize()
-                except Exception:
-                    pass
+            self.update_mic_buttons()
         except Exception as e:
-            print(f"[WARN] Impossible de lire l'état audio au démarrage: {e}")
+            log_error(f"[WARN] Impossible de lire l'état audio au démarrage: {e}")
 
-    def handle_mic_overlay_gui(self, is_muted):
-        # Cette méthode est exécutée dans le THREAD PRINCIPAL (GUI)
-        if hasattr(self, 'mic_overlay'):
-            self.mic_overlay.show_status(is_muted)
+
+    def show_and_restore(self):
+        """Affiche et restaure la fenêtre principale depuis le Tray."""
+        self.show()
+        self.setWindowState(self.windowState() & ~Qt.WindowMinimized | Qt.WindowActive)
+        self.activateWindow()
 
     def handle_key_trigger(self, key_name):
         """Called from KeyListenerThread via signal when a F13-F24 key is pressed.
@@ -1858,7 +1911,7 @@ class MainWindow(QMainWindow):
 
     def tray_activated(self, reason):
         if reason == QSystemTrayIcon.Trigger:
-            self.show_window()
+            self.show_and_restore()
 
     def show_window(self):
         self.show()
@@ -1866,7 +1919,8 @@ class MainWindow(QMainWindow):
         self.activateWindow()
 
     def quit_app(self):
-        self.tray_icon.hide()
+        if self.tray_icon:
+            self.tray_icon.hide()
         QApplication.quit()
 
 def handle_new_connection(server, window):

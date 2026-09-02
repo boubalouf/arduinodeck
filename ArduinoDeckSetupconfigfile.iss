@@ -33,9 +33,9 @@ DisableProgramGroupPage=yes
 ; Uncomment the following line to run in non administrative install mode (install for current user only).
 ;PrivilegesRequired=lowest
 PrivilegesRequiredOverridesAllowed=dialog
-OutputDir=C:\Users\timofeibischerour\Desktop\arduinodeck
+OutputDir=C:\Users\tbisc\Desktop\arduinodeck
 OutputBaseFilename=ArduinoDeck_Setup
-SetupIconFile=C:\Users\timofeibischerour\Desktop\arduinodeck\icon.ico
+SetupIconFile=C:\Users\tbisc\Desktop\arduinodeck\icon.ico
 SolidCompression=yes
 WizardStyle=modern dynamic windows11
 
@@ -44,19 +44,20 @@ Name: "french"; MessagesFile: "compiler:Languages\French.isl"
 
 [Tasks]
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: unchecked
+Name: "autostart"; Description: "Lancer ArduinoDeck au démarrage de Windows"; GroupDescription: "Options de démarrage:"; Flags: unchecked
 
 [Files]
-Source: "C:\Users\timofeibischerour\Desktop\arduinodeck-main\dist\{#MyAppExeName}"; DestDir: "{app}"; Flags: ignoreversion
-Source: "C:\Users\timofeibischerour\Desktop\arduinodeck-main\icon.ico"; DestDir: "{app}"; Flags: ignoreversion
+Source: "C:\Users\tbisc\Desktop\arduinodeck\dist\{#MyAppExeName}"; DestDir: "{app}"; Flags: ignoreversion
+Source: "C:\Users\tbisc\Desktop\arduinodeck\icon.ico"; DestDir: "{app}"; Flags: ignoreversion
 ; NOTE: Don't use "Flags: ignoreversion" on any shared system files
 
 [Icons]
-Name: "{autoprograms}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"
-Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: desktopicon
-Name: "{userstartup}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: desktopicon
+Name: "{autoprograms}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; WorkingDir: "{app}"
+Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; WorkingDir: "{app}"; Tasks: desktopicon
+Name: "{userstartup}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Parameters: "--autostart"; WorkingDir: "{app}"; Tasks: autostart
 
 [Run]
-Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#StringChange(MyAppName, '&', '&&')}}"; Flags: nowait postinstall skipifsilent
+Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#StringChange(MyAppName, '&', '&&')}}"; Flags: nowait postinstall skipifsilent; WorkingDir: "{app}"
 
 [Code]
 procedure InitializeWizard;
